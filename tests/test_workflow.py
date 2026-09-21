@@ -1,3 +1,4 @@
+import subprocess
 from pathlib import Path
 
 from software_engineering_agent.analysis import analyze_test_result
@@ -6,6 +7,54 @@ from software_engineering_agent.proposal import FileEditProposal
 from software_engineering_agent.retry import RetryResult
 from software_engineering_agent.runner import CommandResult
 from software_engineering_agent.workflow import build_workflow
+
+
+def initialize_git_repository(repository: Path) -> None:
+    (repository / ".gitignore").write_text(
+        "__pycache__/\n*.py[cod]\n",
+        encoding="utf-8",
+    )
+    subprocess.run(
+        ["git", "init"],
+        cwd=repository,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        cwd=repository,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    subprocess.run(
+        ["git", "config", "user.name", "Test User"],
+        cwd=repository,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+
+def commit_initial_files(repository: Path) -> None:
+    subprocess.run(
+        ["git", "add", "."],
+        cwd=repository,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    subprocess.run(
+        ["git", "commit", "-m", "Initial commit"],
+        cwd=repository,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
 
 
 def fake_planner(
@@ -53,7 +102,11 @@ def make_retry_result(
     )
 
 
-def test_workflow_runs_edit_and_final_tests(tmp_path: Path) -> None:
+def test_workflow_runs_edit_final_tests_and_review(
+    tmp_path: Path,
+) -> None:
+    initialize_git_repository(tmp_path)
+
     (tmp_path / "app.py").write_text(
         "def add(a, b):\n    return a + b\n",
         encoding="utf-8",
@@ -65,6 +118,8 @@ def test_workflow_runs_edit_and_final_tests(tmp_path: Path) -> None:
         "    assert add(2, 3) == 5\n",
         encoding="utf-8",
     )
+
+    commit_initial_files(tmp_path)
 
     received_allowed_files: list[str] = []
 
@@ -98,9 +153,68 @@ def test_workflow_runs_edit_and_final_tests(tmp_path: Path) -> None:
     assert "app.py" in received_allowed_files
     assert "test_app.py" not in received_allowed_files
     assert "Plan for: Fix the add function" in result["implementation_plan"]
+    assert result["changed_files"] == []
+    assert "Tests passed successfully." in result["final_review"]
+
+
+def test_workflow_reviews_real_file_change(tmp_path: Path) -> None:
+    initialize_git_repository(tmp_path)
+
+    app_file = tmp_path / "app.py"
+
+    app_file.write_text(
+        "def add(a, b):\n    return a - b\n",
+        encoding="utf-8",
+    )
+
+    (tmp_path / "test_app.py").write_text(
+        "from app import add\n\n"
+        "def test_add():\n"
+        "    assert add(2, 3) == 5\n",
+        encoding="utf-8",
+    )
+
+    commit_initial_files(tmp_path)
+
+    def fake_editor(
+        repository: str,
+        task: str,
+        implementation_plan: str,
+        source_contents: dict[str, str],
+        allowed_files: list[str],
+    ) -> RetryResult:
+        app_file.write_text(
+            "def add(a, b):\n    return a + b\n",
+            encoding="utf-8",
+        )
+
+        return make_retry_result(
+            repository,
+            succeeded=True,
+        )
+
+    workflow = build_workflow(
+        plan_function=fake_planner,
+        edit_function=fake_editor,
+    )
+
+    result = workflow.invoke(
+        {
+            "repository_path": str(tmp_path),
+            "task": "Fix the add function",
+        }
+    )
+
+    assert result["tests_succeeded"] is True
+    assert result["changed_files"] == ["app.py"]
+    assert "return a - b" in result["git_diff"]
+    assert "return a + b" in result["git_diff"]
+    assert "app.py" in result["final_review"]
 
 
 def test_workflow_reports_final_test_failure(tmp_path: Path) -> None:
+    initialize_git_repository(tmp_path)
+
     (tmp_path / "app.py").write_text(
         "def add(a, b):\n    return a - b\n",
         encoding="utf-8",
@@ -112,6 +226,8 @@ def test_workflow_reports_final_test_failure(tmp_path: Path) -> None:
         "    assert add(2, 3) == 5\n",
         encoding="utf-8",
     )
+
+    commit_initial_files(tmp_path)
 
     def fake_editor(
         repository: str,
@@ -139,3 +255,4 @@ def test_workflow_reports_final_test_failure(tmp_path: Path) -> None:
 
     assert result["tests_succeeded"] is False
     assert "FAILED" in result["test_output"]
+    assert "Tests failed" in result["final_review"]

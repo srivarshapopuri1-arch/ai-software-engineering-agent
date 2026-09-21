@@ -3,6 +3,7 @@ from collections.abc import Callable
 from langgraph.graph import END, START, StateGraph
 
 from software_engineering_agent.analysis import analyze_test_result
+from software_engineering_agent.git_diff import inspect_git_diff
 from software_engineering_agent.llm_retry import execute_llm_edit_with_retries
 from software_engineering_agent.planner import create_plan
 from software_engineering_agent.repository import (
@@ -10,6 +11,7 @@ from software_engineering_agent.repository import (
     read_repository_files,
 )
 from software_engineering_agent.retry import RetryResult
+from software_engineering_agent.reviewer import create_final_review
 from software_engineering_agent.runner import run_pytest
 from software_engineering_agent.state import AgentState
 
@@ -99,6 +101,24 @@ def test_node(state: AgentState) -> AgentState:
     }
 
 
+def review_node(state: AgentState) -> AgentState:
+    git_diff = inspect_git_diff(state["repository_path"])
+
+    review = create_final_review(
+        task=state["task"],
+        implementation_plan=state["implementation_plan"],
+        git_diff=git_diff,
+        tests_succeeded=state["tests_succeeded"],
+        test_output=state["test_output"],
+    )
+
+    return {
+        "changed_files": git_diff.changed_files,
+        "git_diff": git_diff.diff,
+        "final_review": review.summary,
+    }
+
+
 def build_workflow(
     plan_function: PlanFunction = create_plan,
     edit_function: EditFunction = execute_llm_edit_with_retries,
@@ -109,11 +129,13 @@ def build_workflow(
     graph.add_node("plan_change", make_plan_node(plan_function))
     graph.add_node("edit_and_verify", make_edit_node(edit_function))
     graph.add_node("run_final_tests", test_node)
+    graph.add_node("review_changes", review_node)
 
     graph.add_edge(START, "inspect_repository")
     graph.add_edge("inspect_repository", "plan_change")
     graph.add_edge("plan_change", "edit_and_verify")
     graph.add_edge("edit_and_verify", "run_final_tests")
-    graph.add_edge("run_final_tests", END)
+    graph.add_edge("run_final_tests", "review_changes")
+    graph.add_edge("review_changes", END)
 
     return graph.compile()
