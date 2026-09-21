@@ -1,4 +1,4 @@
-﻿# AI Software Engineering Agent
+# AI Software Engineering Agent
 
 I built this project to explore how an LLM can work through a small software engineering task instead of only generating code from a prompt.
 
