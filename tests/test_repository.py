@@ -2,42 +2,80 @@ from pathlib import Path
 
 import pytest
 
-from software_engineering_agent.repository import inspect_repository
+from software_engineering_agent.repository import (
+    inspect_repository,
+    read_repository_files,
+)
 
 
-def test_inspect_repository_finds_python_and_test_files(tmp_path: Path) -> None:
-    src = tmp_path / "src"
-    tests = tmp_path / "tests"
+def test_inspect_repository_finds_files(tmp_path: Path) -> None:
+    (tmp_path / "src").mkdir()
+    (tmp_path / "tests").mkdir()
 
-    src.mkdir()
-    tests.mkdir()
-
-    (src / "app.py").write_text("print('hello')", encoding="utf-8")
-    (tests / "test_app.py").write_text("def test_example(): pass", encoding="utf-8")
-    (tmp_path / "README.md").write_text("# Example", encoding="utf-8")
+    (tmp_path / "src" / "app.py").write_text(
+        "print('hello')",
+        encoding="utf-8",
+    )
+    (tmp_path / "tests" / "test_app.py").write_text(
+        "def test_example():\n    assert True\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "README.md").write_text(
+        "# Example",
+        encoding="utf-8",
+    )
 
     info = inspect_repository(tmp_path)
 
+    assert "src/app.py" in info.files
+    assert "tests/test_app.py" in info.files
+    assert "README.md" in info.files
     assert "src/app.py" in info.python_files
     assert "tests/test_app.py" in info.test_files
-    assert "README.md" in info.files
 
 
-def test_inspect_repository_ignores_virtual_environment(tmp_path: Path) -> None:
-    venv = tmp_path / ".venv"
-    venv.mkdir()
-
-    (venv / "ignored.py").write_text("secret = True", encoding="utf-8")
-    (tmp_path / "main.py").write_text("print('hello')", encoding="utf-8")
+def test_inspect_repository_ignores_venv(tmp_path: Path) -> None:
+    (tmp_path / ".venv").mkdir()
+    (tmp_path / ".venv" / "ignored.py").write_text(
+        "print('ignore me')",
+        encoding="utf-8",
+    )
+    (tmp_path / "app.py").write_text(
+        "print('keep me')",
+        encoding="utf-8",
+    )
 
     info = inspect_repository(tmp_path)
 
-    assert "main.py" in info.python_files
+    assert "app.py" in info.files
     assert ".venv/ignored.py" not in info.files
 
 
 def test_inspect_repository_rejects_missing_path(tmp_path: Path) -> None:
-    missing = tmp_path / "does-not-exist"
+    missing_path = tmp_path / "missing"
 
     with pytest.raises(FileNotFoundError):
-        inspect_repository(missing)
+        inspect_repository(missing_path)
+
+
+def test_read_repository_files_reads_selected_file(tmp_path: Path) -> None:
+    (tmp_path / "app.py").write_text(
+        "def add(a, b):\n    return a + b\n",
+        encoding="utf-8",
+    )
+
+    contents = read_repository_files(
+        tmp_path,
+        ["app.py"],
+    )
+
+    assert "app.py" in contents
+    assert "def add" in contents["app.py"]
+
+
+def test_read_repository_files_rejects_path_outside_repository(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="outside repository"):
+        read_repository_files(
+            tmp_path,
+            ["../outside.py"],
+        )

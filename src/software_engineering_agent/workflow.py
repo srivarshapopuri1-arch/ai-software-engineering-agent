@@ -4,20 +4,29 @@ from langgraph.graph import END, START, StateGraph
 
 from software_engineering_agent.analysis import analyze_test_result
 from software_engineering_agent.planner import create_plan
-from software_engineering_agent.repository import inspect_repository
+from software_engineering_agent.repository import (
+    inspect_repository,
+    read_repository_files,
+)
 from software_engineering_agent.runner import run_pytest
 from software_engineering_agent.state import AgentState
 
-PlanFunction = Callable[[str, list[str]], str]
+PlanFunction = Callable[[str, list[str], dict[str, str] | None], str]
 
 
 def inspect_node(state: AgentState) -> AgentState:
     info = inspect_repository(state["repository_path"])
 
+    source_contents = read_repository_files(
+        state["repository_path"],
+        info.python_files,
+    )
+
     return {
         "repository_files": info.files,
         "python_files": info.python_files,
         "test_files": info.test_files,
+        "source_contents": source_contents,
     }
 
 
@@ -26,6 +35,7 @@ def make_plan_node(plan_function: PlanFunction):
         plan = plan_function(
             state["task"],
             state["repository_files"],
+            state["source_contents"],
         )
 
         return {"implementation_plan": plan}

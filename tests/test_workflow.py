@@ -3,12 +3,18 @@ from pathlib import Path
 from software_engineering_agent.workflow import build_workflow
 
 
-def fake_planner(task: str, repository_files: list[str]) -> str:
+def fake_planner(
+    task: str,
+    repository_files: list[str],
+    source_contents: dict[str, str] | None = None,
+) -> str:
+    source_files = ", ".join(source_contents or {})
+
     return (
         f"Plan for: {task}. "
-        f"Review these repository files: {', '.join(repository_files)}."
+        f"Review these repository files: {', '.join(repository_files)}. "
+        f"Source files available: {source_files}."
     )
-
 
 def test_workflow_inspects_repository_plans_and_runs_tests(tmp_path: Path) -> None:
     (tmp_path / "app.py").write_text(

@@ -59,3 +59,39 @@ def inspect_repository(path: str | Path) -> RepositoryInfo:
         python_files=python_files,
         test_files=test_files,
     )
+
+
+def read_repository_files(
+    repository: str | Path,
+    files: list[str],
+    max_characters_per_file: int = 6000,
+) -> dict[str, str]:
+    """Read selected text files while keeping access inside the repository."""
+
+    root = Path(repository).resolve()
+
+    if not root.exists():
+        raise FileNotFoundError(f"Repository does not exist: {root}")
+
+    if not root.is_dir():
+        raise NotADirectoryError(f"Repository path is not a directory: {root}")
+
+    contents: dict[str, str] = {}
+
+    for relative_file in files:
+        file_path = (root / relative_file).resolve()
+
+        if not file_path.is_relative_to(root):
+            raise ValueError(f"File is outside repository: {relative_file}")
+
+        if not file_path.is_file():
+            continue
+
+        try:
+            text = file_path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            continue
+
+        contents[relative_file] = text[:max_characters_per_file]
+
+    return contents
